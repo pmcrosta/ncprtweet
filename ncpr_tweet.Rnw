@@ -1,0 +1,242 @@
+\documentclass[12pt,letterpaper,oneside]{article}
+\usepackage{graphics}
+\usepackage{caption}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{setspace}
+\usepackage{longtable}
+\singlespacing
+%\onehalfspacing
+%\doublespacing
+
+\title{\#ncpr2012 Social Media Campaign Report}
+\author{Peter M Crosta\thanks{Ideas provided by NCPR debrief group} \\
+Community College Research Center \\
+Teachers College, Columbia University \\
+\texttt{peter.crosta@columbia.edu}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+% \begin{abstract}
+% \end{abstract}
+% \tableofcontents
+
+\SweaveOpts{concordance=TRUE}
+
+<<setup,include=FALSE,cache=FALSE>>=
+#do requires and set up environment for reporting
+require(ggplot2)
+library(twitteR)
+require(plyr)
+require(stringr)
+library(sentiment)
+library(xtable)
+library(wordcloud)
+library(chron)
+library(Hmisc)
+opts_chunk$set(fig.path='figure/ncpr-', fig.align='center', fig.show='hold',cache.path='cache/dep-', cache=TRUE, autodep=TRUE)
+
+aa <- try(load("sea.Rdata"), silent=T)
+if (class(aa)=="try-error") sea <- searchTwitter('#ncpr2012', n=500, since='2012-06-19') #415 found
+pos.words <- scan(file="/home/crosta/pos", what='character', comment.char=';')
+neg.words = scan(file="/home/crosta/neg", what='character', comment.char=';')
+
+score.sentiment <- function(sentences, pos.words, neg.words, .progress='none') {
+  # we got a vector of sentences. plyr will handle a list
+  # or a vector as an "l" for us
+  # we want a simple array of scores back, so we use 
+  # "l" + "a" + "ply" = "laply":
+  scores = laply(sentences, function(sentence, pos.words, neg.words) {
+    
+    # clean up sentences with R's regex-driven global substitute, gsub():
+    sentence = gsub('[[:punct:]]', '', sentence)
+    sentence = gsub('[[:cntrl:]]', '', sentence)
+    sentence = gsub('\\d+', '', sentence)
+    # and convert to lower case:
+    sentence = tolower(sentence)
+    
+    # split into words. str_split is in the stringr package
+    word.list = str_split(sentence, '\\s+')
+    # sometimes a list() is one level of hierarchy too much
+    words = unlist(word.list)
+    
+    # compare our words to the dictionaries of positive & negative terms
+    pos.matches = match(words, pos.words)
+    neg.matches = match(words, neg.words)
+    
+    # match() returns the position of the matched term or NA
+    # we just want a TRUE/FALSE:
+    pos.matches = !is.na(pos.matches)
+    neg.matches = !is.na(neg.matches)
+    
+    # and conveniently enough, TRUE/FALSE will be treated as 1/0 by sum():
+    score = sum(pos.matches) - sum(neg.matches)
+    
+    return(score)
+  }, pos.words, neg.words, .progress=.progress )
+  
+  scores.df = data.frame(score=scores, text=sentences)
+  return(scores.df)
+}
+
+# sanitizeLatexS <- function(str) {
+#     gsub('([#$%&~_\\^\\\\{}])', '\\\\\\\\\\1', str, perl = TRUE);
+# }
+
+tw.df=twListToDF(sea)
+tw.df$realtime <- as.POSIXct(format(tw.df$created, tz="America/New_York"),origin="1970-01-01")
+tw.df <- subset(tw.df, days(realtime) %in% c(21,22))
+all.ids <- unique(tw.df$screenName)
+aa <- try(load("user.Rdata"), silent=T)
+if (class(aa)=="try-error") userinfo <- sapply(names(table(all.ids)), getUser)
+user.df <- twListToDF(userinfo)
+RTs <- str_detect(tw.df$text, "RT")
+when.tweet <- as.POSIXct(tw.df$realtime,origin="1970-01-01")
+tw.df$realname <- user.df$name[match(tw.df$screenName,user.df$screenName)]
+daytab <-table(as.character(days(tw.df$realtime)))
+tw.df$day <- days(tw.df$realtime)
+build_dep()
+@
+
+\section{Overview}
+The National Center for Postsecondary Research (NCPR) held its final conference on remediation at Teachers College, Columbia University on June 21-22, 2012. The Community College Research Center's (CCRC) communications team used the social media tool \href{http://www.twitter.com}{\textbf{Twitter}} to update followers on important findings from the conference. Other conference members joined the online discussion by using the hash tag \#ncpr2012. This report summarizes the extent of tweeting and gauges the general sentiment of the conference as told by the Twitterverse. 
+
+\section{Who, when, and how much}
+% an asterisk after section means it does not get numbered
+% \addcontentsline{toc}{subsection}{How many tweets?} %to make sure subsection is in toc
+\subsection*{How many tweets?}
+A search on twitter for \#ncpr2012 from June 21, 2012 to June 22, 2012 identified \Sexpr{dim(tw.df)[1]} tweets. There were \Sexpr{sum(RTs)} retweets and thus \Sexpr{dim(tw.df)[1]-sum(RTs)} unique messages sent. More activity was recorded on the 21$^{st}$ (\Sexpr{as.numeric(daytab[1])} tweets) then on the 22$^{nd}$ (\Sexpr{as.numeric(daytab[2])} tweets).
+
+
+<<whotweets,echo=FALSE>>=
+tab1 <- as.table(sort(table(tw.df$realname), decreasing=T))
+t1.len<-as.integer(length(tab1)/2)
+t1<-as.matrix(as.table(tab1[1:t1.len]))
+t2<-as.matrix(as.table(tab1[(t1.len+1):length(tab1)]))
+colnames(t1) <- colnames(t2) <- "Freq"
+@
+
+\subsection*{Who tweeted?}
+\begin{table}[h!]
+\caption{Who tweets}
+\begin{minipage}{.45\textwidth}
+\centering
+<<wt01,echo=FALSE,results='asis'>>=
+print(xtable(t1),
+  floating=FALSE,
+  hline.after=NULL,
+  add.to.row=list(pos=list(-1,0, nrow(t1)),
+  command=c('\\toprule\n','\\midrule\n','\\bottomrule\n')))
+@
+\end{minipage}
+\begin{minipage}{.45\textwidth}
+\centering
+<<wt02,echo=FALSE,results='asis'>>=
+print(xtable(t2),
+  floating=FALSE,
+  hline.after=NULL,
+  add.to.row=list(pos=list(-1,0, nrow(t2)),
+  command=c('\\toprule\n','\\midrule\n','\\bottomrule\n')))
+@
+\end{minipage}
+\label{tab:whotweettab}
+\end{table}
+
+The majority of tweets came from CCRC. However, several other conference attendees where active at the time. Table~\ref{tab:whotweettab} lists the \Sexpr{dim(user.df)[1]} unique tweeters and the number of times they tweeted during the two-day event. Note that most users only contribute one comment as very few users dominate the conversation. Future campaigns could make more use of @replys, @messages, and direct questions to increase engagement.
+
+\subsection*{When did they tweet?}
+\begin{figure}[h!]
+<<when,fig.width=7,fig.height=5,echo=FALSE,fig.align='center'>>=
+qplot(format(tw.df$realtime, "%m/%d:%H"),main="Tweets per hour",xlab="Time (Month/Day:Hour)", ylab="Count")+geom_vline(xintercept=10.5)+opts(axis.text.x=theme_text(angle=-45))
+@
+\caption{\label{fig:when}Tweet frequency}
+\end{figure}
+
+As shown in Figure~\ref{fig:when}, Twitter activity was greater during the morning sessions than the afternoon sessions, with a slow decline over the course of the first day. The 9am and 11am sessions on the second day saw a spike in activity, but most hours saw only about 20 tweets.
+
+\begin{figure}[h!]
+<<whentweet,fig.width=7,fig.height=8,echo=FALSE,fig.align='center'>>=
+ggplot(tw.df)+geom_point(aes(x=realtime,y=realname))+facet_wrap(~day,scales="free_x")+opts(title="When users tweeted during NCPR 2012",axis.text.x=theme_text(angle=-45))+ylab("Name")+scale_x_datetime("Time (Month/Day:Hour)", major="1 hour",minor="1 day",format = "%m/%d:%H")
+@
+\caption{\label{fig:whenwho}Who tweeted when}
+\end{figure}
+
+Figure~\ref{fig:whenwho} illustrates who was tweeting and when they were doing it during the conference. Perhaps predictably, tweet activity by MDRC spiked during the 9am hour on the 22$^{nd}$, when MDRC researchers were reporting initial findings from research on Accelerated Study in Associate Programs (ASAP). We might categorize users into two different types. One group periodically tweets, leaving lots of time between inidividual messages. The second type of user generated a clumping pattern. These users have higher tweet counts and would fire several tweets in rapid succession.
+
+\section{Sentiment analysis}
+To gauge the overall tone of conference-related tweets, we conduct a short sentiment analysis using two strategies. The first and most basic strategy is a sentiment analysis that involves comparing the text in tweets to banks of positive and negative words. The general sentiment score is the difference in the number of positive words and the number of negative words\footnote{See Minqing Hu and Bing Liu. "Mining and Summarizing Customer Reviews." Proceedings of the ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD-2004), Aug 22-25, 2004, Seattle, Washington, USA}. The second and somewhat more sophisticated analysis employs an algorithm that has been trained to recognize positive and negative text.
+
+<<sentiment,include=TRUE,eval=TRUE,echo=FALSE>>=
+all.scores = score.sentiment(tw.df$text, pos.words, neg.words)
+meansent <- mean(all.scores$score)
+meansent.noccrc <- mean(all.scores$score[tw.df$screenName!="CommunityCCRC"])
+polar <- classify_polarity(tw.df$text)
+@
+
+\begin{figure}[h]\centering
+<<barsent,fig.width=5, fig.height=3, echo=FALSE,results='asis'>>=
+qplot(all.scores$score, binwidth=.5)+opts(title="Sentiment Scores #NCPR2012")+xlab(label="Sentiment scores")+ylab(label="Count")+scale_x_continuous(breaks=min(all.scores$score):max(all.scores$score))
+@
+\caption{\label{fig:barsent}Histogram of sentiment scores.}
+\end{figure}
+
+As an example of tweets with positive and negative text, consider the following highest-rated tweet written by \texttt{\Sexpr{tw.df$realname[which.max(all.scores$score)]}}:  
+\begin{quote}
+\Sexpr{latexTranslate(tw.df$text[which.max(all.scores$score)])}
+\end{quote}
+\noindent The lowest-rated tweet was written by \texttt{\Sexpr{tw.df$realname[which.min(all.scores$score)]}}:  \begin{quote}
+\Sexpr{latexTranslate(tw.df$text[which.min(all.scores$score)])}
+\end{quote}
+
+Figure~\ref{fig:barsent} shows the distribution of sentiment scores. Most tweets receive a score of zero. They either have words that cancel each other out or have words that do not appear on either list. The mean sentiment by the first method (higher is better) is \Sexpr{round(meansent,3)}; Excluding tweets from CCRC the sentiment is \Sexpr{round(meansent.noccrc,3)}. This means that the tweets were, on average, more positive than negative.
+
+Using the second sentiment method (Naive Bayes), we are able to label each tweet as Negative, Neutral, or Positive. The classification shown in Table~\ref{TS}. Again we see that tweets are more positive than negative.
+
+<<polar,echo=FALSE,results='asis'>>=
+tp <- as.matrix(table(polar[,"BEST_FIT"]))
+dimnames(tp) <- list(c("Negative", "Neutral", "Positive"), c("Freq"))
+print(xtable(tp,caption="Tweet sentiment breakdown", label="TS"), table.placement="h!", caption.placement="top")
+@
+
+\subsection*{It matters who tweets}
+<<weight-sent,include=TRUE,echo=FALSE>>=
+importance <- user.df$followersCount[match(tw.df$screenName, user.df$screenName)]
+wt.meansent <- weighted.mean(all.scores$score, importance)
+wt.meansent.noccrc <- weighted.mean(all.scores$score[tw.df$screenName!="CommunityCCRC"], importance[tw.df$screenName!="CommunityCCRC"])
+@
+
+It is important to remember that all tweets are not created equal. Some Twitter users have tens of thousand of followers, reaching a very wide audience, while others have only a handful of followers. To take into account the importance of a tweet, we weight the sentiment score by the number of followers that each user has. Weighting by user importance reduces the average sentiment score to \Sexpr{round(wt.meansent,3)}, or \Sexpr{round(wt.meansent.noccrc,3)} when omitting CCRC tweets. These findings suggest that overall positive tweet sentiment is being driven by CCRC tweets and tweeters of higher importance are generally less positive than tweeters of lower importance.
+
+\section{What did they say?}
+A full list of tweet text can be obtained  by e-mailing the author. One way to get a big picture of the conference is to create a word cloud based on the text of the tweets. This can be seen in Figure~\ref{fig:wordcloud}. 
+
+\begin{figure}[ht!]\centering
+<<wordcloud, fig.width=7, fig.height=7, out.height="5in",echo=FALSE>>=
+ap.corpus <- Corpus(DataframeSource(data.frame(tw.df$text)))
+ap.corpus <- tm_map(ap.corpus, removePunctuation)
+ap.corpus <- tm_map(ap.corpus, tolower)
+ap.corpus <- tm_map(ap.corpus, function(x) removeWords(x, c(stopwords("english"), "ncpr2012", tolower(user.df$screenName))))
+ap.tdm <- TermDocumentMatrix(ap.corpus)
+ap.m <- as.matrix(ap.tdm)
+ap.v <- sort(rowSums(ap.m),decreasing=TRUE)
+ap.d <- data.frame(word = names(ap.v),freq=ap.v)
+pal2 <- brewer.pal(8,"Dark2")
+wordcloud(ap.d$word,ap.d$freq, scale=c(8,.2),min.freq=3,
+max.words=Inf, random.order=FALSE, rot.per=.5, colors=pal2)
+@
+\caption{\label{fig:wordcloud}Word cloud from conference tweets}
+\end{figure}
+
+\section{Conclusions}
+This brief report analyzes the the Twitter campaign from the perspective of hash tag \#ncpr2012. Several conference users participated in the online discussion, and the tone was positive in general. Future conferences can make use of social media campaigns to collect data on conference users and sentiment.
+
+%\appendix
+%<<alltext,size="small",results='asis',echo=FALSE>>=
+%latex(latexTabular(tw.df[1:1,c("realname", "text")]),file="")
+%# latexTabular(tw.df[1:1,c("realname", "text")])
+%# print(tw.df[1:1,c("realname", "text")],caption="All tweets for #ncpr2012", label="alltweet"),tabular.environmen%t='longtable',floating=FALSE)
+%@
+
+\end{document}
